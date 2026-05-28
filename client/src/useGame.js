@@ -22,17 +22,21 @@ const initial = {
   difficulty:     '',
   isGenerating:   false,
   error:          null,
+  connected:      false,
 };
 
 function reduce(state, msg) {
   switch (msg.type) {
     case 'LOBBY_CREATED':
-      return { ...state, screen: 'lobby', myId: msg.playerId, isHost: true,  lobbyCode: msg.code, settings: msg.settings, players: msg.players, error: null };
+      return { ...state, screen: 'lobby', myId: msg.playerId, isHost: true, lobbyCode: msg.code, settings: msg.settings, players: msg.players, error: null };
     case 'JOINED_LOBBY':
       return { ...state, screen: 'lobby', myId: msg.playerId, isHost: false, lobbyCode: msg.code, settings: msg.settings, players: msg.players, hostId: msg.hostId, error: null };
     case 'PLAYER_JOINED':
-    case 'PLAYER_LEFT':
-      return { ...state, players: msg.players, hostId: msg.hostId ?? state.hostId };
+      return { ...state, players: msg.players };
+    case 'PLAYER_LEFT': {
+      const newHostId = msg.hostId ?? state.hostId;
+      return { ...state, players: msg.players, hostId: newHostId, isHost: newHostId === state.myId };
+    }
     case 'SETTINGS_UPDATED':
       return { ...state, settings: msg.settings };
     case 'GENERATING_QUESTIONS':
@@ -62,29 +66,57 @@ function reduce(state, msg) {
 }
 
 export function useGame() {
-  const wsRef = useRef(null);
+  const wsRef         = useRef(null);
+  const reconnectRef  = useRef(null);
+  const intentionalRef = useRef(false);
   const [state, setState] = useState(initial);
 
+  const connect = useCallback(() => {
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${proto}//${window.location.host}/ws`);
+    wsRef.current = ws;
+
+    ws.onopen = () => setState(s => ({ ...s, connected: true, error: null }));
+
+    ws.onmessage = (e) => {
+      try { setState(s => reduce(s, JSON.parse(e.data))); } catch {}
+    };
+
+    ws.onclose = () => {
+      const intentional = intentionalRef.current;
+      intentionalRef.current = false;
+      if (intentional) {
+        // User chose to leave — reconnect immediately and go home
+        setState({ ...initial });
+        reconnectRef.current = setTimeout(connect, 50);
+      } else {
+        // Unexpected drop — show reconnecting message and retry
+        setState({ ...initial, connected: false, error: 'Connection lost — reconnecting…' });
+        reconnectRef.current = setTimeout(connect, 2000);
+      }
+    };
+
+    ws.onerror = () => {};
+  }, []);
+
   const send = useCallback((msg) => {
+    if (msg.type === 'LEAVE') {
+      intentionalRef.current = true;
+      wsRef.current?.close();
+      return;
+    }
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(msg));
     }
   }, []);
 
   useEffect(() => {
-    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url   = `${proto}//${window.location.host}/ws`;
-    const ws    = new WebSocket(url);
-    wsRef.current = ws;
-
-    ws.onmessage = (e) => {
-      try { setState(s => reduce(s, JSON.parse(e.data))); } catch {}
+    connect();
+    return () => {
+      clearTimeout(reconnectRef.current);
+      wsRef.current?.close();
     };
-    ws.onclose = () => setState(s => ({ ...s, error: 'Connection lost. Please refresh.' }));
-    ws.onerror = () => setState(s => ({ ...s, error: 'WebSocket error. Please refresh.' }));
-
-    return () => ws.close();
-  }, []);
+  }, [connect]);
 
   return { state, send };
 }

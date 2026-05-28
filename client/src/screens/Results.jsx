@@ -59,7 +59,7 @@ export default function Results({ state, send }) {
                   <div style={{ fontWeight: 800, fontSize: '1.05rem', color: i === 0 ? 'var(--yellow)' : 'var(--text)', textAlign: 'right' }}>
                     {settings.scoring === 'speed' ? p.score.toLocaleString() : p.score}
                     <div style={{ color: 'var(--muted-2)', fontSize: '0.72rem', fontWeight: 400 }}>
-                      {settings.scoring === 'speed' ? 'pts' : '/ ???'}
+                      {settings.scoring === 'speed' ? 'pts' : `/ ${totalQuestions}`}
                     </div>
                   </div>
                 </div>

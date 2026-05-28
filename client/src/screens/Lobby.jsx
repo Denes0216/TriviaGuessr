@@ -104,7 +104,7 @@ export default function Lobby({ state, send }) {
         </div>
 
         {/* Settings / waiting panel */}
-        <div className="card" style={{ padding: 26 }}>
+        <div className="card" style={{ padding: 26, display: 'flex', flexDirection: 'column' }}>
           {isHost ? (
             <>
               <div style={{ fontWeight: 700, marginBottom: 22, fontSize: '1.05rem' }}>Game Settings</div>
@@ -155,6 +155,13 @@ export default function Lobby({ state, send }) {
                 {isGenerating ? <><span className="spinner" />Generating questions…</> : 'Start Game →'}
               </button>
               {error && <p className="error">{error}</p>}
+              <button
+                className="btn btn-secondary"
+                onClick={() => send({ type: 'LEAVE' })}
+                style={{ marginTop: 8, opacity: 0.7 }}
+              >
+                Leave Lobby
+              </button>
             </>
           ) : (
             <div style={{ textAlign: 'center', padding: '32px 0' }}>
@@ -167,6 +174,14 @@ export default function Lobby({ state, send }) {
               <div style={{ color: 'var(--muted)', fontSize: '0.88rem', marginBottom: 24 }}>
                 {isGenerating ? 'This takes a few seconds' : 'The host is configuring the game'}
               </div>
+
+              <button
+                className="btn btn-secondary"
+                onClick={() => send({ type: 'LEAVE' })}
+                style={{ marginBottom: 16, opacity: 0.7 }}
+              >
+                Leave Lobby
+              </button>
 
               {/* Read-only settings */}
               <div style={{ background: 'var(--surface)', borderRadius: 12, padding: '14px 16px', textAlign: 'left' }}>
