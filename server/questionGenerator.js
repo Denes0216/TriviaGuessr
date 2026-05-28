@@ -1,6 +1,6 @@
-const Anthropic = require('@anthropic-ai/sdk');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const CATEGORY_LABELS = {
   '':           'a wide variety of topics',
@@ -18,24 +18,20 @@ const CATEGORY_LABELS = {
   videogames:   'video games and gaming',
 };
 
+const model = genAI.getGenerativeModel({
+  model: 'gemini-2.0-flash',
+  systemInstruction: 'You are a trivia question generator. Respond with valid JSON only — no markdown, no code blocks, no extra text.',
+  generationConfig: {
+    responseMimeType: 'application/json',
+    maxOutputTokens: 4096,
+  },
+});
+
 async function generateQuestions({ category, difficulty, amount }) {
   const topic = CATEGORY_LABELS[category] ?? CATEGORY_LABELS[''];
   const diff  = difficulty || 'mixed difficulty (vary between easy, medium, and hard)';
 
-  const response = await client.messages.create({
-    model: 'claude-opus-4-7',
-    max_tokens: 4096,
-    system: [
-      {
-        type: 'text',
-        text: 'You are a trivia question generator. Respond with valid JSON only — no markdown, no code blocks, no extra text.',
-        cache_control: { type: 'ephemeral' },
-      },
-    ],
-    messages: [
-      {
-        role: 'user',
-        content: `Generate ${amount} unique multiple-choice trivia questions about ${topic} at ${diff}.
+  const prompt = `Generate ${amount} unique multiple-choice trivia questions about ${topic} at ${diff}.
 
 Return exactly this JSON structure:
 {
@@ -54,12 +50,10 @@ Rules:
 - Exactly ${amount} questions, each with exactly 3 incorrect answers
 - Answers must be concise (1–8 words)
 - Factually accurate, no duplicates
-- difficulty field must be "easy", "medium", or "hard"`,
-      },
-    ],
-  });
+- difficulty field must be "easy", "medium", or "hard"`;
 
-  const raw = response.content[0].text.trim()
+  const result = await model.generateContent(prompt);
+  const raw = result.response.text().trim()
     .replace(/^```(?:json)?\s*\n?/, '')
     .replace(/\n?```\s*$/, '')
     .trim();
