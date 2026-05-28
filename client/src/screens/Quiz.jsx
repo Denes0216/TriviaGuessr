@@ -194,6 +194,18 @@ export default function Quiz({ state, send }) {
 
       </div>
 
+      {/* Leave game */}
+      <button
+        onClick={() => send({ type: 'LEAVE' })}
+        style={{
+          marginTop: 14, background: 'none', border: 'none', color: 'var(--muted-2)',
+          fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit',
+          textDecoration: 'underline', textUnderlineOffset: 3,
+        }}
+      >
+        Leave game
+      </button>
+
       <style>{`
         @media (max-width: 480px) {
           .answers-grid { grid-template-columns: 1fr !important; }

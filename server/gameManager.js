@@ -3,7 +3,7 @@ const { generateQuestions } = require('./questionGenerator');
 const lobbies     = new Map(); // code  -> lobby
 const playerLobby = new Map(); // ws.id -> code
 
-const REVEAL_PAUSE = 3500; // ms between reveal and next question
+const REVEAL_PAUSE = 3500;
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -29,7 +29,7 @@ function broadcast(wss, code, msg) {
 function scoreboard(lobby) {
   return [...lobby.players.values()]
     .sort((a, b) => b.score - a.score)
-    .map(({ id, nickname, score, isHost }) => ({ id, nickname, score, isHost }));
+    .map(({ id, nickname, score, isHost, correctCount }) => ({ id, nickname, score, isHost, correct: correctCount }));
 }
 
 function sanitizeSettings(s = {}) {
@@ -49,6 +49,10 @@ function shuffle(arr) {
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
+}
+
+function makePlayer(id, nickname, isHost) {
+  return { id, nickname, score: 0, isHost, correctCount: 0, hasAnswered: false, lastCorrect: false, lastPoints: 0 };
 }
 
 // ── game flow ───────────────────────────────────────────────────────────────
@@ -97,7 +101,7 @@ function revealAndAdvance(wss, lobby) {
   });
 
   setTimeout(() => {
-    if (!lobbies.has(lobby.code)) return; // lobby was deleted
+    if (!lobbies.has(lobby.code)) return;
     lobby.currentIndex++;
     if (lobby.currentIndex < lobby.questions.length) {
       sendQuestion(wss, lobby);
@@ -122,7 +126,7 @@ async function handleMessage(ws, msg, wss) {
     const lobby = {
       code, state: 'WAITING',
       settings: sanitizeSettings(msg.settings),
-      players: new Map([[ws.id, { id: ws.id, nickname, score: 0, isHost: true, hasAnswered: false, lastCorrect: false, lastPoints: 0 }]]),
+      players: new Map([[ws.id, makePlayer(ws.id, nickname, true)]]),
       questions: [], currentIndex: 0, timeLeft: 0, timer: null, hostId: ws.id,
     };
     lobbies.set(code, lobby);
@@ -144,7 +148,7 @@ async function handleMessage(ws, msg, wss) {
     const taken = [...lobby.players.values()].some(p => p.nickname.toLowerCase() === nickname.toLowerCase());
     if (taken) return send(ws, { type: 'ERROR', message: 'That nickname is already taken.' });
 
-    lobby.players.set(ws.id, { id: ws.id, nickname, score: 0, isHost: false, hasAnswered: false, lastCorrect: false, lastPoints: 0 });
+    lobby.players.set(ws.id, makePlayer(ws.id, nickname, false));
     playerLobby.set(ws.id, code);
     send(ws, { type: 'JOINED_LOBBY', code, playerId: ws.id, settings: lobby.settings, players: scoreboard(lobby), hostId: lobby.hostId });
     broadcast(wss, code, { type: 'PLAYER_JOINED', players: scoreboard(lobby) });
@@ -166,7 +170,7 @@ async function handleMessage(ws, msg, wss) {
     if (!lobby || lobby.hostId !== ws.id || lobby.state !== 'WAITING') return;
 
     lobby.state = 'GENERATING';
-    lobby.players.forEach(p => { p.score = 0; });
+    lobby.players.forEach(p => { p.score = 0; p.correctCount = 0; });
     broadcast(wss, code, { type: 'GENERATING_QUESTIONS' });
 
     try {
@@ -189,16 +193,17 @@ async function handleMessage(ws, msg, wss) {
     const player = lobby.players.get(ws.id);
     if (!player || player.hasAnswered) return;
 
-    const q          = lobby.questions[lobby.currentIndex];
-    const isCorrect  = msg.answer === q.correct_answer;
-    const timeLeft   = Math.max(0, lobby.timeLeft);
+    const q         = lobby.questions[lobby.currentIndex];
+    const isCorrect = msg.answer === q.correct_answer;
+    const timeLeft  = Math.max(0, lobby.timeLeft);
 
-    player.hasAnswered = true;
-    player.lastCorrect = isCorrect;
-    player.lastPoints  = isCorrect
+    player.hasAnswered  = true;
+    player.lastCorrect  = isCorrect;
+    player.lastPoints   = isCorrect
       ? (lobby.settings.scoring === 'speed' ? Math.round(200 + (timeLeft / lobby.settings.timePerQuestion) * 800) : 1)
       : 0;
-    player.score += player.lastPoints;
+    player.score       += player.lastPoints;
+    if (isCorrect) player.correctCount++;
 
     send(ws, { type: 'ANSWER_ACK', correct: isCorrect, points: player.lastPoints });
 
@@ -207,6 +212,23 @@ async function handleMessage(ws, msg, wss) {
       clearInterval(lobby.timer);
       revealAndAdvance(wss, lobby);
     }
+  }
+
+  // ── KICK ──
+  else if (type === 'KICK') {
+    const code  = playerLobby.get(ws.id);
+    const lobby = lobbies.get(code);
+    if (!lobby || lobby.hostId !== ws.id || lobby.state !== 'WAITING') return;
+
+    const targetId = String(msg.playerId || '');
+    if (!targetId || targetId === ws.id) return;
+
+    let targetWs;
+    wss.clients.forEach(c => { if (c.id === targetId && lobby.players.has(c.id)) targetWs = c; });
+    if (!targetWs) return;
+
+    send(targetWs, { type: 'KICKED' });
+    targetWs.close();
   }
 
   // ── PLAY_AGAIN ──
@@ -218,7 +240,7 @@ async function handleMessage(ws, msg, wss) {
     lobby.state        = 'WAITING';
     lobby.questions    = [];
     lobby.currentIndex = 0;
-    lobby.players.forEach(p => { p.score = 0; });
+    lobby.players.forEach(p => { p.score = 0; p.correctCount = 0; });
     broadcast(wss, code, { type: 'BACK_TO_LOBBY', settings: lobby.settings, players: scoreboard(lobby) });
   }
 }
@@ -241,12 +263,21 @@ function handleDisconnect(ws, wss) {
   }
 
   if (lobby.hostId === ws.id) {
-    const next      = lobby.players.values().next().value;
-    next.isHost     = true;
-    lobby.hostId    = next.id;
+    const next   = lobby.players.values().next().value;
+    next.isHost  = true;
+    lobby.hostId = next.id;
   }
 
   broadcast(wss, code, { type: 'PLAYER_LEFT', players: scoreboard(lobby), hostId: lobby.hostId });
+
+  // If a player disconnects mid-question and everyone remaining has answered, advance
+  if (lobby.state === 'QUESTION') {
+    const allDone = [...lobby.players.values()].every(p => p.hasAnswered);
+    if (allDone) {
+      clearInterval(lobby.timer);
+      revealAndAdvance(wss, lobby);
+    }
+  }
 }
 
 module.exports = { handleMessage, handleDisconnect };

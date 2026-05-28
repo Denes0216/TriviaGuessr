@@ -1,28 +1,29 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 
 const initial = {
-  screen:         'home',
-  myId:           null,
-  isHost:         false,
-  lobbyCode:      null,
-  settings:       { category: '', difficulty: '', amount: 10, timePerQuestion: 20, scoring: 'speed' },
-  players:        [],
-  hostId:         null,
-  question:       null,
-  answers:        [],
-  questionIndex:  0,
-  totalQuestions: 0,
-  timeLimit:      20,
-  lastCorrect:    false,
-  lastPoints:     0,
-  correctAnswer:  null,
-  playerResults:  [],
-  scoreboard:     [],
-  category:       '',
-  difficulty:     '',
-  isGenerating:   false,
-  error:          null,
-  connected:      false,
+  screen:          'home',
+  myId:            null,
+  isHost:          false,
+  lobbyCode:       null,
+  settings:        { category: '', difficulty: '', amount: 10, timePerQuestion: 20, scoring: 'speed' },
+  players:         [],
+  hostId:          null,
+  question:        null,
+  answers:         [],
+  questionIndex:   0,
+  totalQuestions:  0,
+  timeLimit:       20,
+  lastCorrect:     false,
+  lastPoints:      0,
+  correctAnswer:   null,
+  playerResults:   [],
+  scoreboard:      [],
+  questionHistory: [],
+  category:        '',
+  difficulty:      '',
+  isGenerating:    false,
+  error:           null,
+  connected:       false,
 };
 
 function reduce(state, msg) {
@@ -52,12 +53,27 @@ function reduce(state, msg) {
       };
     case 'ANSWER_ACK':
       return { ...state, lastCorrect: msg.correct, lastPoints: msg.points };
-    case 'REVEAL':
-      return { ...state, correctAnswer: msg.correctAnswer, playerResults: msg.playerResults, scoreboard: msg.scoreboard };
+    case 'REVEAL': {
+      const myResult = msg.playerResults.find(p => p.id === state.myId);
+      return {
+        ...state,
+        correctAnswer: msg.correctAnswer,
+        playerResults: msg.playerResults,
+        scoreboard: msg.scoreboard,
+        questionHistory: [...state.questionHistory, {
+          question:      state.question,
+          answers:       state.answers,
+          correctAnswer: msg.correctAnswer,
+          category:      state.category,
+          difficulty:    state.difficulty,
+          iGotIt:        myResult?.correct ?? false,
+        }],
+      };
+    }
     case 'GAME_OVER':
       return { ...state, screen: 'results', scoreboard: msg.scoreboard };
     case 'BACK_TO_LOBBY':
-      return { ...state, screen: 'lobby', settings: msg.settings, players: msg.players, isGenerating: false, correctAnswer: null };
+      return { ...state, screen: 'lobby', settings: msg.settings, players: msg.players, isGenerating: false, correctAnswer: null, questionHistory: [] };
     case 'ERROR':
       return { ...state, error: msg.message, isGenerating: false };
     default:
@@ -66,9 +82,10 @@ function reduce(state, msg) {
 }
 
 export function useGame() {
-  const wsRef         = useRef(null);
-  const reconnectRef  = useRef(null);
+  const wsRef          = useRef(null);
+  const reconnectRef   = useRef(null);
   const intentionalRef = useRef(false);
+  const kickMsgRef     = useRef(null);
   const [state, setState] = useState(initial);
 
   const connect = useCallback(() => {
@@ -76,21 +93,32 @@ export function useGame() {
     const ws = new WebSocket(`${proto}//${window.location.host}/ws`);
     wsRef.current = ws;
 
-    ws.onopen = () => setState(s => ({ ...s, connected: true, error: null }));
+    ws.onopen = () => {
+      const pendingError = kickMsgRef.current;
+      kickMsgRef.current = null;
+      setState(s => ({ ...s, connected: true, error: pendingError }));
+    };
 
     ws.onmessage = (e) => {
-      try { setState(s => reduce(s, JSON.parse(e.data))); } catch {}
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'KICKED') {
+          kickMsgRef.current = 'You were removed from the lobby.';
+          intentionalRef.current = true;
+          ws.close();
+          return;
+        }
+        setState(s => reduce(s, msg));
+      } catch {}
     };
 
     ws.onclose = () => {
       const intentional = intentionalRef.current;
       intentionalRef.current = false;
       if (intentional) {
-        // User chose to leave — reconnect immediately and go home
         setState({ ...initial });
         reconnectRef.current = setTimeout(connect, 50);
       } else {
-        // Unexpected drop — show reconnecting message and retry
         setState({ ...initial, connected: false, error: 'Connection lost — reconnecting…' });
         reconnectRef.current = setTimeout(connect, 2000);
       }

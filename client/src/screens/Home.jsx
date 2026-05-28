@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 const MODE = { HOME: 'home', CREATE: 'create', JOIN: 'join' };
 
@@ -6,6 +6,17 @@ export default function Home({ state, send }) {
   const [mode, setMode]         = useState(MODE.HOME);
   const [nickname, setNickname] = useState('');
   const [code, setCode]         = useState('');
+
+  // Auto-enter join mode if ?join=XXXX is in the URL (from a shared invite link)
+  useEffect(() => {
+    const params   = new URLSearchParams(window.location.search);
+    const joinCode = params.get('join');
+    if (joinCode && joinCode.length === 4) {
+      setCode(joinCode.toUpperCase());
+      setMode(MODE.JOIN);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   function goBack() { setMode(MODE.HOME); setNickname(''); setCode(''); }
 
@@ -44,6 +55,7 @@ export default function Home({ state, send }) {
               Join Game
             </button>
           </div>
+          {state.error && <p className="error" style={{ marginTop: 16 }}>{state.error}</p>}
         </div>
       </div>
     );

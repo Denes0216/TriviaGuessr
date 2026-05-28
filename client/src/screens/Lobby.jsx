@@ -20,12 +20,20 @@ const AVATAR_COLORS = ['#3b82f6','#8b5cf6','#ec4899','#f59e0b','#10b981','#ef444
 
 export default function Lobby({ state, send }) {
   const { lobbyCode, players, settings, isHost, isGenerating, error, myId } = state;
-  const [copied, setCopied] = useState(false);
+  const [copied,     setCopied]     = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   function copy() {
     navigator.clipboard.writeText(lobbyCode).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  }
+
+  function copyLink() {
+    const url = `${window.location.origin}/?join=${lobbyCode}`;
+    navigator.clipboard.writeText(url).catch(() => {});
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
   }
 
   function update(key, value) {
@@ -56,11 +64,19 @@ export default function Lobby({ state, send }) {
             cursor: 'pointer', fontSize: '0.85rem', fontFamily: 'inherit', fontWeight: 600,
             transition: 'all 0.2s',
           }}>
-            {copied ? '✓ Copied' : 'Copy'}
+            {copied ? '✓ Copied' : 'Copy Code'}
+          </button>
+          <button onClick={copyLink} style={{
+            padding: '8px 16px', border: '1.5px solid var(--border)', borderRadius: 10,
+            background: copiedLink ? '#16a34a' : 'var(--surface)', color: copiedLink ? '#fff' : 'var(--muted)',
+            cursor: 'pointer', fontSize: '0.85rem', fontFamily: 'inherit', fontWeight: 600,
+            transition: 'all 0.2s',
+          }}>
+            {copiedLink ? '✓ Copied' : '🔗 Copy Link'}
           </button>
         </div>
         <div style={{ color: 'var(--muted-2)', fontSize: '0.82rem', marginTop: 5 }}>
-          Share this code with friends to join
+          Share the code or link with friends to join
         </div>
       </div>
 
@@ -91,13 +107,29 @@ export default function Lobby({ state, send }) {
                 }}>
                   {p.nickname[0].toUpperCase()}
                 </div>
-                <div>
+                <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 600, fontSize: '0.92rem', display: 'flex', alignItems: 'center', gap: 6 }}>
                     {p.nickname}
                     {p.id === myId && <span style={{ color: 'var(--muted-2)', fontWeight: 400, fontSize: '0.75rem' }}>(you)</span>}
                   </div>
                   {p.isHost && <div style={{ color: '#fbbf24', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.04em' }}>HOST</div>}
                 </div>
+                {isHost && p.id !== myId && (
+                  <button
+                    onClick={() => send({ type: 'KICK', playerId: p.id })}
+                    title="Kick player"
+                    style={{
+                      width: 26, height: 26, borderRadius: 6, border: '1px solid var(--border)',
+                      background: 'transparent', color: 'var(--muted-2)', cursor: 'pointer',
+                      fontSize: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      flexShrink: 0, transition: 'all 0.15s',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = '#450a0a'; e.currentTarget.style.borderColor = '#991b1b'; e.currentTarget.style.color = '#f87171'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--muted-2)'; }}
+                  >
+                    ✕
+                  </button>
+                )}
               </div>
             ))}
           </div>
